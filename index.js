@@ -62,7 +62,25 @@ bot.onText(/\/start (.+)/, async (msg, match) => {
 
         if (member.status === "left") {
             return bot.sendMessage(chatId,
-                `🚫 Kamu harus join dulu ke channel:\nhttps://t.me/${channelUsername.replace("@","")}`
+                "🚫 Kamu harus join channel dulu untuk mendapatkan video.",
+                {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: "Gabung Channel",
+                                    url: `https://t.me/${channelUsername.replace("@","")}`
+                                }
+                            ],
+                            [
+                                {
+                                    text: "Coba Lagi",
+                                    callback_data: `check_${kode}`
+                                }
+                            ]
+                        ]
+                    }
+                }
             );
         }
 
@@ -76,4 +94,35 @@ bot.onText(/\/start (.+)/, async (msg, match) => {
 // Start biasa
 bot.onText(/\/start$/, (msg) => {
     bot.sendMessage(msg.chat.id, "Upload video (admin only).");
+});
+
+bot.on("callback_query", async (query) => {
+
+    const chatId = query.message.chat.id;
+    const data = query.data;
+
+    if (data.startsWith("check_")) {
+
+        const kode = data.split("_")[1];
+
+        try {
+            const member = await bot.getChatMember(channelUsername, chatId);
+
+            if (member.status === "left") {
+                return bot.answerCallbackQuery(query.id, {
+                    text: "Kamu belum join channel!",
+                    show_alert: true
+                });
+            }
+
+            bot.sendVideo(chatId, database[kode]);
+            bot.answerCallbackQuery(query.id);
+
+        } catch (error) {
+            bot.answerCallbackQuery(query.id, {
+                text: "Terjadi kesalahan.",
+                show_alert: true
+            });
+        }
+    }
 });
