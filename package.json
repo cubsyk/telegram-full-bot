@@ -1,0 +1,18 @@
+{
+  "name": "telegram-full-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "fs": "^0.0.1-security",
+    "node-telegram-api": "^0.4.0",
+    "node-telegram-bot-api": "^0.67.0"
+  }
+}
