@@ -10,7 +10,7 @@ bot.on('message', (msg) => {
 
 const botUsername = "tesjk2_bot"; // TANPA @
 const channelUsername = "@alfamartjk2"; // PAKE @
-const ADMIN_ID = 1388479642; // NANTI GANTI CHAT ID KAMU
+const ADMIN_ID = 1270148826; // NANTI GANTI CHAT ID KAMU
 
 // Load database
 let database = {};
