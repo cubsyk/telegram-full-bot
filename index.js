@@ -4,13 +4,9 @@ const fs = require('fs');
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-bot.on('message', (msg) => {
-    console.log("CHAT ID:", msg.chat.id);
-});
-
 const botUsername = "tesjk2_bot"; // TANPA @
 const channelUsername = "@alfamartjk2"; // PAKE @
-const ADMIN_ID = 1270148826; // NANTI GANTI CHAT ID KAMU
+const ADMIN_ID = 1388479642; // NANTI GANTI CHAT ID KAMU
 
 // Load database
 let database = {};
