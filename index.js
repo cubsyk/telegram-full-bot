@@ -93,7 +93,12 @@ bot.onText(/\/start (.+)/, async (msg, match) => {
 
 // Start biasa
 bot.onText(/\/start$/, (msg) => {
-    bot.sendMessage(msg.chat.id, "Upload video (admin only).");
+
+    if (msg.chat.id === ADMIN_ID) {
+        bot.sendMessage(msg.chat.id, "Upload video untuk mendapatkan link.");
+    } else {
+        bot.sendMessage(msg.chat.id, "Silakan klik link dari channel untuk mendapatkan konten.");
+    }
 });
 
 bot.on("callback_query", async (query) => {
