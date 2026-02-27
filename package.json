@@ -13,6 +13,7 @@
   "dependencies": {
     "fs": "^0.0.1-security",
     "node-telegram-api": "^0.4.0",
-    "node-telegram-bot-api": "^0.67.0"
+    "node-telegram-bot-api": "^0.67.0",
+    "pg": "^8.19.0"
   }
 }
