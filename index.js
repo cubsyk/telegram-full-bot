@@ -121,7 +121,7 @@ bot.onText(/\/start$/, (msg) => {
   if (msg.chat.id === ADMIN_ID) {
     bot.sendMessage(msg.chat.id, "Upload video untuk mendapatkan link.");
   } else {
-    bot.sendMessage(msg.chat.id, "Silakan klik link dari channel/grup.");
+    bot.sendMessage(msg.chat.id, "Silakan klik link dari channel/grup untuk melihat konten.");
   }
 });
 
