@@ -1,10 +1,13 @@
 const TelegramBot = require('node-telegram-bot-api');
 const { Pool } = require('pg');
+const crypto = require("crypto");
 
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// PostgreSQL Connection
+// ==========================
+// DATABASE CONNECTION
+// ==========================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -12,17 +15,18 @@ const pool = new Pool({
   }
 });
 
-const botUsername = "tesjk2_bot"; // TANPA @
-const channelUsername = "@alfamartjk2"; // PAKE @
-const ADMIN_ID = 1388479642;
+const botUsername = "mediasendaljepit_bot"; // TANPA @
+const OWNER_ID = 1388479642; // ADMIN UTAMA (tidak bisa dihapus)
 
-// Generate kode random
+// ==========================
+// GENERATE RANDOM CODE
+// ==========================
 function generateCode() {
-  return "vid" + Math.floor(100000 + Math.random() * 900000);
+  return crypto.randomBytes(24).toString("base64url");
 }
 
 // ==========================
-// BUAT TABEL JIKA BELUM ADA
+// CREATE TABLE IF NOT EXISTS
 // ==========================
 (async () => {
   await pool.query(`
@@ -34,19 +38,72 @@ function generateCode() {
     );
   `);
 
-  console.log("Database ready");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admins (
+      id BIGINT PRIMARY KEY
+    );
+  `);
+
+  // Masukkan owner sebagai admin otomatis
+  await pool.query(
+    "INSERT INTO admins (id) VALUES ($1) ON CONFLICT DO NOTHING",
+    [OWNER_ID]
+  );
+
+  console.log("✅ Database ready");
 })();
 
 // ==========================
-// UPLOAD VIDEO (ADMIN ONLY)
+// CEK ADMIN FUNCTION
+// ==========================
+async function isAdmin(userId) {
+  const result = await pool.query(
+    "SELECT id FROM admins WHERE id = $1",
+    [userId]
+  );
+  return result.rows.length > 0;
+}
+
+// ==========================
+// TAMBAH ADMIN (OWNER ONLY)
+// ==========================
+bot.onText(/\/addadmin (\d+)/, async (msg, match) => {
+
+  if (msg.chat.id !== OWNER_ID) {
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner yang bisa menambah admin.");
+  }
+
+  const newAdminId = match[1];
+
+  await pool.query(
+    "INSERT INTO admins (id) VALUES ($1) ON CONFLICT DO NOTHING",
+    [newAdminId]
+  );
+
+  bot.sendMessage(msg.chat.id, "✅ Admin berhasil ditambahkan.");
+});
+
+// ==========================
+// CEK ID SENDIRI
+// ==========================
+bot.onText(/\/myid/, (msg) => {
+  bot.sendMessage(msg.chat.id, `🆔 ID kamu: ${msg.chat.id}`);
+});
+
+// ==========================
+// ADMIN UPLOAD VIDEO
 // ==========================
 bot.on('message', async (msg) => {
 
-  if (msg.video && msg.chat.id === ADMIN_ID) {
+  if (!msg.video) return;
 
-    const file_id = msg.video.file_id;
-    const kode = generateCode();
+  const adminCheck = await isAdmin(msg.chat.id);
+  if (!adminCheck) return;
 
+  const file_id = msg.video.file_id;
+  const kode = generateCode();
+
+  try {
     await pool.query(
       "INSERT INTO videos (kode, file_id) VALUES ($1, $2)",
       [kode, file_id]
@@ -57,6 +114,10 @@ bot.on('message', async (msg) => {
     bot.sendMessage(msg.chat.id,
       `✅ Video berhasil disimpan!\n\n🔗 Link:\n${link}`
     );
+
+  } catch (error) {
+    console.log(error);
+    bot.sendMessage(msg.chat.id, "❌ Gagal menyimpan video.");
   }
 });
 
@@ -68,107 +129,36 @@ bot.onText(/\/start (.+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const kode = match[1];
 
-  const result = await pool.query(
-    "SELECT file_id FROM videos WHERE kode = $1",
-    [kode]
-  );
-
-  if (result.rows.length === 0) {
-    return bot.sendMessage(chatId, "❌ Video tidak ditemukan.");
-  }
-
-  const file_id = result.rows[0].file_id;
-
   try {
-    const member = await bot.getChatMember(channelUsername, chatId);
-
-    if (member.status === "left") {
-      return bot.sendMessage(chatId,
-        "🚫 Kamu harus join channel dulu untuk mendapatkan video.",
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: "Gabung Channel",
-                  url: `https://t.me/${channelUsername.replace("@","")}`
-                }
-              ],
-              [
-                {
-                  text: "Coba Lagi",
-                  callback_data: `check_${kode}`
-                }
-              ]
-            ]
-          }
-        }
-      );
-    }
-
-    bot.sendVideo(chatId, file_id);
-
-  } catch (error) {
-    bot.sendMessage(chatId, "Terjadi kesalahan.");
-  }
-});
-
-// ==========================
-// START BIASA
-// ==========================
-bot.onText(/\/start$/, (msg) => {
-
-  if (msg.chat.id === ADMIN_ID) {
-    bot.sendMessage(msg.chat.id, "Upload video untuk mendapatkan link.");
-  } else {
-    bot.sendMessage(msg.chat.id, "Silakan klik link dari channel/grup untuk melihat konten.");
-  }
-});
-
-// ==========================
-// HANDLE TOMBOL COBA LAGI
-// ==========================
-bot.on("callback_query", async (query) => {
-
-  const chatId = query.message.chat.id;
-  const data = query.data;
-
-  if (data.startsWith("check_")) {
-
-    const kode = data.split("_")[1];
-
     const result = await pool.query(
       "SELECT file_id FROM videos WHERE kode = $1",
       [kode]
     );
 
     if (result.rows.length === 0) {
-      return bot.answerCallbackQuery(query.id, {
-        text: "Video tidak ditemukan.",
-        show_alert: true
-      });
+      return bot.sendMessage(chatId, "❌ Video tidak ditemukan.");
     }
 
     const file_id = result.rows[0].file_id;
 
-    try {
-      const member = await bot.getChatMember(channelUsername, chatId);
+    bot.sendVideo(chatId, file_id);
 
-      if (member.status === "left") {
-        return bot.answerCallbackQuery(query.id, {
-          text: "Kamu belum join channel!",
-          show_alert: true
-        });
-      }
+  } catch (error) {
+    console.log(error);
+    bot.sendMessage(chatId, "❌ Terjadi kesalahan.");
+  }
+});
 
-      bot.sendVideo(chatId, file_id);
-      bot.answerCallbackQuery(query.id);
+// ==========================
+// START TANPA PARAMETER
+// ==========================
+bot.onText(/\/start$/, async (msg) => {
 
-    } catch (error) {
-      bot.answerCallbackQuery(query.id, {
-        text: "Terjadi kesalahan.",
-        show_alert: true
-      });
-    }
+  const adminCheck = await isAdmin(msg.chat.id);
+
+  if (adminCheck) {
+    bot.sendMessage(msg.chat.id, "📤 Silakan upload video untuk mendapatkan link.");
+  } else {
+    bot.sendMessage(msg.chat.id, "👋 Silakan klik link yang diberikan untuk melihat video.");
   }
 });
