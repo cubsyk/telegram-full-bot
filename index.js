@@ -84,6 +84,61 @@ bot.onText(/\/addadmin (\d+)/, async (msg, match) => {
 });
 
 // ==========================
+// LIST ADMIN (OWNER ONLY)
+// ==========================
+bot.onText(/\/listadmin/, async (msg) => {
+
+  if (msg.chat.id !== OWNER_ID) {
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner yang bisa melihat daftar admin.");
+  }
+
+  const result = await pool.query("SELECT id FROM admins ORDER BY id ASC");
+
+  if (result.rows.length === 0) {
+    return bot.sendMessage(msg.chat.id, "Tidak ada admin.");
+  }
+
+  let text = "📋 Daftar Admin:\n\n";
+
+  result.rows.forEach((row, index) => {
+    if (row.id == OWNER_ID) {
+      text += `${index + 1}. ${row.id} (OWNER)\n`;
+    } else {
+      text += `${index + 1}. ${row.id}\n`;
+    }
+  });
+
+  bot.sendMessage(msg.chat.id, text);
+});
+
+// ==========================
+// REMOVE ADMIN (OWNER ONLY)
+// ==========================
+bot.onText(/\/removeadmin (\d+)/, async (msg, match) => {
+
+  if (msg.chat.id !== OWNER_ID) {
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner yang bisa menghapus admin.");
+  }
+
+  const removeId = parseInt(match[1]);
+
+  if (removeId === OWNER_ID) {
+    return bot.sendMessage(msg.chat.id, "❌ Owner tidak bisa dihapus.");
+  }
+
+  const result = await pool.query(
+    "DELETE FROM admins WHERE id = $1 RETURNING id",
+    [removeId]
+  );
+
+  if (result.rowCount === 0) {
+    return bot.sendMessage(msg.chat.id, "❌ ID tersebut bukan admin.");
+  }
+
+  bot.sendMessage(msg.chat.id, "✅ Admin berhasil dihapus.");
+});
+
+// ==========================
 // CEK ID SENDIRI
 // ==========================
 bot.onText(/\/myid/, (msg) => {
@@ -159,6 +214,6 @@ bot.onText(/\/start$/, async (msg) => {
   if (adminCheck) {
     bot.sendMessage(msg.chat.id, "📤 Silakan upload video untuk mendapatkan link.");
   } else {
-    bot.sendMessage(msg.chat.id, "👋 Silakan klik link yang diberikan untuk melihat video.");
+    bot.sendMessage(msg.chat.id, "👋 Silakan klik link dari channel/grup untuk melihat konten.");
   }
 });
