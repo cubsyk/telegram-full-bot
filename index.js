@@ -21,8 +21,13 @@ const CHANNEL_USERNAME = "@seducteasech";
 const GROUP_USERNAME = "@seductease";
 
 // ==========================
+// STATE — menyimpan video sementara
+// saat admin sedang menunggu input judul
+// ==========================
+const pendingVideos = {};
+
+// ==========================
 // GENERATE RANDOM CODE
-// Format: huruf besar, kecil, angka — tanpa karakter aneh
 // ==========================
 function generateCode() {
   return crypto.randomBytes(24).toString("base64")
@@ -41,6 +46,7 @@ function generateCode() {
       id SERIAL PRIMARY KEY,
       kode TEXT UNIQUE,
       file_id TEXT,
+      judul TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
@@ -169,7 +175,70 @@ bot.onText(/\/myid/, msg => {
 });
 
 // ==========================
+// LIST VIDEO
+// ==========================
+bot.onText(/\/listvideo/, async msg => {
+
+  const admin = await isAdmin(msg.chat.id);
+
+  if (!admin)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya admin.");
+
+  const res = await pool.query(
+    "SELECT id, judul, kode FROM videos ORDER BY created_at DESC"
+  );
+
+  if (res.rows.length === 0)
+    return bot.sendMessage(msg.chat.id, "📭 Belum ada video.");
+
+  let text = "📋 *Daftar Video*\n\n";
+
+  res.rows.forEach((r, i) => {
+    text += `${i + 1}. *${r.judul}*\n`;
+    text += `   🔗 https://t.me/${botUsername}?start=${r.kode}\n`;
+    text += `   🗑 /hapus_${r.id}\n\n`;
+  });
+
+  bot.sendMessage(msg.chat.id, text, { parse_mode: "Markdown" });
+
+});
+
+// ==========================
+// HAPUS VIDEO
+// ==========================
+bot.onText(/\/hapus_(\d+)/, async (msg, match) => {
+
+  const admin = await isAdmin(msg.chat.id);
+
+  if (!admin)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya admin.");
+
+  const id = parseInt(match[1]);
+
+  const res = await pool.query(
+    "SELECT judul FROM videos WHERE id=$1",
+    [id]
+  );
+
+  if (res.rows.length === 0)
+    return bot.sendMessage(msg.chat.id, "❌ Video tidak ditemukan.");
+
+  const judul = res.rows[0].judul;
+
+  await pool.query(
+    "DELETE FROM videos WHERE id=$1",
+    [id]
+  );
+
+  bot.sendMessage(msg.chat.id, `✅ Video *${judul}* berhasil dihapus.`, {
+    parse_mode: "Markdown"
+  });
+
+});
+
+// ==========================
 // ADMIN UPLOAD VIDEO
+// Bot minta judul dulu sebelum simpan
 // ==========================
 bot.on("message", async msg => {
 
@@ -178,21 +247,49 @@ bot.on("message", async msg => {
   const admin = await isAdmin(msg.chat.id);
   if (!admin) return;
 
-  const file_id = msg.video.file_id;
+  // Simpan file_id sementara, tunggu judul dari admin
+  pendingVideos[msg.chat.id] = msg.video.file_id;
+
+  bot.sendMessage(msg.chat.id, "📝 Berikan judul untuk video ini:");
+
+});
+
+// ==========================
+// TERIMA JUDUL DARI ADMIN
+// ==========================
+bot.on("message", async msg => {
+
+  // Hanya proses jika admin sedang menunggu input judul
+  if (!pendingVideos[msg.chat.id]) return;
+  if (!msg.text) return;
+  if (msg.text.startsWith("/")) return;
+
+  const admin = await isAdmin(msg.chat.id);
+  if (!admin) return;
+
+  const file_id = pendingVideos[msg.chat.id];
+  const judul = msg.text.trim();
   const kode = generateCode();
 
+  // Hapus state pending
+  delete pendingVideos[msg.chat.id];
+
   await pool.query(
-    "INSERT INTO videos (kode,file_id) VALUES ($1,$2)",
-    [kode, file_id]
+    "INSERT INTO videos (kode, file_id, judul) VALUES ($1, $2, $3)",
+    [kode, file_id, judul]
   );
 
   const link = `https://t.me/${botUsername}?start=${kode}`;
 
   bot.sendMessage(msg.chat.id,
-`✅ Video disimpan
-
+`✅ *Video disimpan*
+\`\`\`
+Judul : ${judul}
+\`\`\`
 🔗 Link:
-${link}`);
+${link}`,
+    { parse_mode: "Markdown" }
+  );
 
 });
 
@@ -259,7 +356,6 @@ bot.on("callback_query", async query => {
 
   if (!data.startsWith("ck_")) return;
 
-  // ✅ Slice agar kode diambil utuh
   const kode = data.slice("ck_".length);
 
   const joined = await checkMembership(chatId);
@@ -301,7 +397,13 @@ bot.onText(/\/start$/, async msg => {
   const admin = await isAdmin(msg.chat.id);
 
   if (admin)
-    bot.sendMessage(msg.chat.id, "📤 Upload video untuk membuat link");
+    bot.sendMessage(msg.chat.id,
+`📤 Upload video untuk membuat link
+
+Perintah tersedia:
+/listvideo — lihat semua video
+/hapus_(id) — hapus video`
+    );
   else
     bot.sendMessage(msg.chat.id, "👋 Klik link video untuk melihat konten");
 
