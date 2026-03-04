@@ -22,9 +22,13 @@ const GROUP_USERNAME = "@seductease";
 
 // ==========================
 // GENERATE RANDOM CODE
+// Format: huruf besar, kecil, angka — tanpa karakter aneh
 // ==========================
 function generateCode() {
-  return crypto.randomBytes(24).toString("base64url");
+  return crypto.randomBytes(24).toString("base64")
+    .replace(/\+/g, "A")
+    .replace(/\//g, "B")
+    .replace(/=/g, "");
 }
 
 // ==========================
@@ -80,7 +84,7 @@ async function checkMembership(userId) {
     const channel = await bot.getChatMember(CHANNEL_USERNAME, userId);
     const group = await bot.getChatMember(GROUP_USERNAME, userId);
 
-    const allowed = ["member","administrator","creator"];
+    const allowed = ["member", "administrator", "creator"];
 
     if (!allowed.includes(channel.status)) return false;
     if (!allowed.includes(group.status)) return false;
@@ -96,10 +100,10 @@ async function checkMembership(userId) {
 // ==========================
 // ADD ADMIN
 // ==========================
-bot.onText(/\/addadmin (\d+)/, async (msg,match)=>{
+bot.onText(/\/addadmin (\d+)/, async (msg, match) => {
 
-  if(msg.chat.id !== OWNER_ID)
-  return bot.sendMessage(msg.chat.id,"❌ Hanya owner.");
+  if (msg.chat.id !== OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner.");
 
   const id = match[1];
 
@@ -108,83 +112,81 @@ bot.onText(/\/addadmin (\d+)/, async (msg,match)=>{
     [id]
   );
 
-  bot.sendMessage(msg.chat.id,"✅ Admin ditambahkan");
+  bot.sendMessage(msg.chat.id, "✅ Admin ditambahkan");
 
 });
 
 // ==========================
 // LIST ADMIN
 // ==========================
-bot.onText(/\/listadmin/, async msg=>{
+bot.onText(/\/listadmin/, async msg => {
 
-  if(msg.chat.id !== OWNER_ID)
-  return bot.sendMessage(msg.chat.id,"❌ Hanya owner.");
+  if (msg.chat.id !== OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner.");
 
   const res = await pool.query("SELECT id FROM admins");
 
-  let text="📋 Daftar Admin\n\n";
+  let text = "📋 Daftar Admin\n\n";
 
-  res.rows.forEach((r,i)=>{
-
-    if(r.id==OWNER_ID)
-    text+=`${i+1}. ${r.id} (OWNER)\n`;
+  res.rows.forEach((r, i) => {
+    if (r.id == OWNER_ID)
+      text += `${i + 1}. ${r.id} (OWNER)\n`;
     else
-    text+=`${i+1}. ${r.id}\n`;
-
+      text += `${i + 1}. ${r.id}\n`;
   });
 
-  bot.sendMessage(msg.chat.id,text);
+  bot.sendMessage(msg.chat.id, text);
 
 });
 
 // ==========================
 // REMOVE ADMIN
 // ==========================
-bot.onText(/\/removeadmin (\d+)/, async (msg,match)=>{
+bot.onText(/\/removeadmin (\d+)/, async (msg, match) => {
 
-  if(msg.chat.id !== OWNER_ID)
-  return bot.sendMessage(msg.chat.id,"❌ Hanya owner.");
+  if (msg.chat.id !== OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner.");
 
-  const id=parseInt(match[1]);
+  const id = parseInt(match[1]);
 
-  if(id===OWNER_ID)
-  return bot.sendMessage(msg.chat.id,"❌ Owner tidak bisa dihapus.");
+  if (id === OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Owner tidak bisa dihapus.");
 
   await pool.query(
     "DELETE FROM admins WHERE id=$1",
     [id]
   );
 
-  bot.sendMessage(msg.chat.id,"✅ Admin dihapus");
+  bot.sendMessage(msg.chat.id, "✅ Admin dihapus");
 
 });
 
 // ==========================
 // MY ID
 // ==========================
-bot.onText(/\/myid/, msg=>{
-  bot.sendMessage(msg.chat.id,`🆔 ID kamu: ${msg.chat.id}`);
+bot.onText(/\/myid/, msg => {
+  bot.sendMessage(msg.chat.id, `🆔 ID kamu: ${msg.chat.id}`);
 });
 
 // ==========================
 // ADMIN UPLOAD VIDEO
 // ==========================
-bot.on("message", async msg=>{
+bot.on("message", async msg => {
 
-  if(!msg.video) return;
+  if (!msg.video) return;
 
-  const admin=await isAdmin(msg.chat.id);
-  if(!admin) return;
+  const admin = await isAdmin(msg.chat.id);
+  if (!admin) return;
 
-  const file_id=msg.video.file_id;
-  const kode=generateCode();
+  const file_id = msg.video.file_id;
+  const kode = generateCode();
 
   await pool.query(
     "INSERT INTO videos (kode,file_id) VALUES ($1,$2)",
-    [kode,file_id]
+    [kode, file_id]
   );
 
-  const link=`https://t.me/${botUsername}?start=${kode}`;
+  const link = `https://t.me/${botUsername}?start=${kode}`;
 
   bot.sendMessage(msg.chat.id,
 `✅ Video disimpan
@@ -197,88 +199,95 @@ ${link}`);
 // ==========================
 // START WITH LINK
 // ==========================
-bot.onText(/\/start (.+)/, async (msg,match)=>{
+bot.onText(/\/start (.+)/, async (msg, match) => {
 
-  const chatId=msg.chat.id;
-  const kode=match[1];
+  const chatId = msg.chat.id;
+  const kode = match[1];
 
-  const joined=await checkMembership(chatId);
+  const joined = await checkMembership(chatId);
 
-  if(!joined){
+  if (!joined) {
 
     return bot.sendMessage(chatId,
-"🚫 Kamu harus join channel & grup dulu",
-{
-reply_markup:{
-inline_keyboard:[
-[
-{ text:"Join Disini",
-url:`https://t.me/${CHANNEL_USERNAME.replace("@","")}`}
-],
-[
-{ text:"Join Disini",
-url:`https://t.me/${GROUP_USERNAME.replace("@","")}`}
-],
-[
-{ text:"✅ Saya sudah join",
-callback_data:`check_${kode}`}
-]
-]
-}
-});
+      "🚫 Kamu harus join channel & grup dulu",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "Join Channel",
+                url: `https://t.me/${CHANNEL_USERNAME.replace("@", "")}`
+              }
+            ],
+            [
+              {
+                text: "Join Grup",
+                url: `https://t.me/${GROUP_USERNAME.replace("@", "")}`
+              }
+            ],
+            [
+              {
+                text: "✅ Saya sudah join",
+                callback_data: `ck_${kode}`
+              }
+            ]
+          ]
+        }
+      });
 
   }
 
-  const res=await pool.query(
+  const res = await pool.query(
     "SELECT file_id FROM videos WHERE kode=$1",
     [kode]
   );
 
-  if(res.rows.length===0)
-  return bot.sendMessage(chatId,"❌ Video tidak ditemukan");
+  if (res.rows.length === 0)
+    return bot.sendMessage(chatId, "❌ Video tidak ditemukan");
 
-  bot.sendVideo(chatId,res.rows[0].file_id);
+  bot.sendVideo(chatId, res.rows[0].file_id);
 
 });
 
 // ==========================
 // CEK ULANG JOIN
 // ==========================
-bot.on("callback_query", async query=>{
+bot.on("callback_query", async query => {
 
-  const chatId=query.message.chat.id;
-  const data=query.data;
+  const chatId = query.message.chat.id;
+  const data = query.data;
 
-  if(!data.startsWith("check_")) return;
+  if (!data.startsWith("ck_")) return;
 
-  const kode=data.split("_")[1];
+  // ✅ Slice agar kode diambil utuh
+  const kode = data.slice("ck_".length);
 
-  const joined=await checkMembership(chatId);
+  const joined = await checkMembership(chatId);
 
-  if(!joined){
+  if (!joined) {
 
-    return bot.answerCallbackQuery(query.id,{
-      text:"❌ Kamu belum join",
-      show_alert:true
+    return bot.answerCallbackQuery(query.id, {
+      text: "❌ Kamu belum join",
+      show_alert: true
     });
 
   }
 
-  const res=await pool.query(
+  const res = await pool.query(
     "SELECT file_id FROM videos WHERE kode=$1",
     [kode]
   );
 
-  if(res.rows.length===0){
+  if (res.rows.length === 0) {
 
-    return bot.answerCallbackQuery(query.id,{
-      text:"Video tidak ditemukan",
-      show_alert:true
+    return bot.answerCallbackQuery(query.id, {
+      text: "❌ Video tidak ditemukan",
+      show_alert: true
     });
 
   }
 
-  await bot.sendVideo(chatId,res.rows[0].file_id);
+  await bot.sendVideo(chatId, res.rows[0].file_id);
 
   bot.answerCallbackQuery(query.id);
 
@@ -287,13 +296,13 @@ bot.on("callback_query", async query=>{
 // ==========================
 // START BIASA
 // ==========================
-bot.onText(/\/start$/, async msg=>{
+bot.onText(/\/start$/, async msg => {
 
-  const admin=await isAdmin(msg.chat.id);
+  const admin = await isAdmin(msg.chat.id);
 
-  if(admin)
-  bot.sendMessage(msg.chat.id,"📤 Upload video untuk membuat link");
+  if (admin)
+    bot.sendMessage(msg.chat.id, "📤 Upload video untuk membuat link");
   else
-  bot.sendMessage(msg.chat.id,"👋 Klik link video untuk melihat konten");
+    bot.sendMessage(msg.chat.id, "👋 Klik link video untuk melihat konten");
 
 });
