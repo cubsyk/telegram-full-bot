@@ -22,8 +22,7 @@ const CHANNEL_USERNAME = "@seducteasech";
 // GROUP WAJIB JOIN (grup privat pakai Chat ID)
 const GROUP_ID = -1003564618360;
 
-// LINK INVITE GRUP — ganti dengan link invite grup kamu
-// Bisa didapat dari: Grup → Tambah Anggota → Undang lewat tautan
+// LINK INVITE GRUP
 const GROUP_INVITE_LINK = "https://t.me/+YsRyXijYl0Y1NGFl";
 
 // ==========================
@@ -318,7 +317,7 @@ bot.onText(/\/start (.+)/, async (msg, match) => {
   if (!joined) {
 
     return bot.sendMessage(chatId,
-      "🚫 Kamu harus join channel & grup dulu",
+      "🚫 Kamu harus join channel & grup kami dulu untuk melihat konten!",
       {
         reply_markup: {
           inline_keyboard: [
@@ -408,8 +407,8 @@ bot.onText(/\/start$/, async msg => {
 
   const admin = await isAdmin(msg.chat.id);
 
-  if (admin)
-    bot.sendMessage(msg.chat.id,
+  if (admin) {
+    return bot.sendMessage(msg.chat.id,
 `📤 Panduan Admin
 
 Upload video → ketik judul → link langsung muncul
@@ -423,7 +422,50 @@ Upload video → ketik judul → link langsung muncul
 /removeadmin (id) — hapus admin
 /myid — lihat ID kamu`
     );
-  else
-    bot.sendMessage(msg.chat.id, "👋 Klik link video untuk melihat konten");
+  }
+
+  const joined = await checkMembership(msg.chat.id);
+
+  if (joined) {
+    // Sudah join, arahkan ke channel untuk dapat link video
+    return bot.sendMessage(msg.chat.id,
+      "✅ Kamu sudah join! Klik link video dari channel kami untuk menonton konten.",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "Ke Channel",
+                url: `https://t.me/${CHANNEL_USERNAME.replace("@", "")}`
+              }
+            ]
+          ]
+        }
+      }
+    );
+  }
+
+  // Belum join, tampilkan tombol join
+  bot.sendMessage(msg.chat.id,
+    "👋 Halo! Untuk mendapatkan konten, join channel & grup kami dulu ya!",
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "Join Channel",
+              url: `https://t.me/${CHANNEL_USERNAME.replace("@", "")}`
+            }
+          ],
+          [
+            {
+              text: "Join Grup",
+              url: GROUP_INVITE_LINK
+            }
+          ]
+        ]
+      }
+    }
+  );
 
 });
