@@ -1,383 +1,429 @@
-require("dotenv").config();
-const TelegramBot = require("node-telegram-bot-api");
+const TelegramBot = require('node-telegram-bot-api');
+const { Pool } = require('pg');
+const crypto = require("crypto");
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+const token = process.env.BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
 
-console.log("Bot berjalan...");
+// ==========================
+// DATABASE CONNECTION
+// ==========================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-// =======================
-// ERROR HANDLER
-// =======================
-bot.on("polling_error", console.error);
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
+const botUsername = "seducteasemedia_bot";
+const OWNER_ID = 1388479642;
 
-// =======================
-// CONFIG
-// =======================
-let ANTI_LINK = true;
-let ANTI_SPAM = true;
+// CHANNEL WAJIB JOIN
+const CHANNEL_USERNAME = "@seducteasech";
 
-let DEFAULT_MUTE_DURATION = 60;
+// GROUP WAJIB JOIN (grup privat pakai Chat ID)
+const GROUP_ID = -1003564618360;
 
-const SPAM_LIMIT = 5;
-const TIME_WINDOW = 5000;
-const MIN_MUTE_DURATION = 30;
+// LINK INVITE GRUP — ganti dengan link invite grup kamu
+// Bisa didapat dari: Grup → Tambah Anggota → Undang lewat tautan
+const GROUP_INVITE_LINK = "https://t.me/+YsRyXijYl0Y1NGFl";
 
-const PROMO_CHANNEL = "https://t.me/seducteasech";
+// ==========================
+// STATE — menyimpan video sementara
+// ==========================
+const pendingVideos = {};
 
-const userMessages = {};
-let lastWelcomeMessage = {};
-
-// =======================
-// ESCAPE MARKDOWN
-// =======================
-function escapeMarkdown(text) {
-  if (!text) return "";
-  return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
+// ==========================
+// GENERATE RANDOM CODE
+// ==========================
+function generateCode() {
+  return crypto.randomBytes(24).toString("base64")
+    .replace(/\+/g, "A")
+    .replace(/\//g, "B")
+    .replace(/=/g, "");
 }
 
-// =======================
-// FORMAT WAKTU
-// =======================
-function formatDateTime(timestamp) {
-  const date = new Date(timestamp);
-  return date.toLocaleString("id-ID", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
+// ==========================
+// CREATE TABLE
+// ==========================
+(async () => {
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS videos (
+      id SERIAL PRIMARY KEY,
+      kode TEXT UNIQUE,
+      file_id TEXT,
+      judul TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admins (
+      id BIGINT PRIMARY KEY
+    );
+  `);
+
+  await pool.query(
+    "INSERT INTO admins (id) VALUES ($1) ON CONFLICT DO NOTHING",
+    [OWNER_ID]
+  );
+
+  console.log("✅ Database ready");
+
+})();
+
+// ==========================
+// CEK ADMIN
+// ==========================
+async function isAdmin(userId) {
+
+  const result = await pool.query(
+    "SELECT id FROM admins WHERE id=$1",
+    [userId]
+  );
+
+  return result.rows.length > 0;
+
 }
 
-// =======================
-// HAPUS PESAN SISTEM OTOMATIS
-// Semua pesan sistem seperti X keluar, judul diubah, dll
-// new_chat_members dikecualikan karena sudah ada welcome message
-// =======================
-bot.on("message", async (msg) => {
+// ==========================
+// CEK JOIN CHANNEL & GROUP
+// ==========================
+async function checkMembership(userId) {
 
-  if (msg.chat.type === "private") return;
+  try {
 
-  const chatId = msg.chat.id;
+    const channel = await bot.getChatMember(CHANNEL_USERNAME, userId);
+    const group = await bot.getChatMember(GROUP_ID, userId);
 
-  if (
-    msg.new_chat_members ||
-    msg.left_chat_member ||
-    msg.new_chat_title ||
-    msg.new_chat_photo ||
-    msg.delete_chat_photo ||
-    msg.pinned_message ||
-    msg.group_chat_created ||
-    msg.supergroup_chat_created ||
-    msg.channel_chat_created
-  ) {
-    try {
-      await bot.deleteMessage(chatId, msg.message_id);
-    } catch {}
+    const allowed = ["member", "administrator", "creator"];
+
+    if (!allowed.includes(channel.status)) return false;
+    if (!allowed.includes(group.status)) return false;
+
+    return true;
+
+  } catch {
+    return false;
   }
+
+}
+
+// ==========================
+// ADD ADMIN
+// ==========================
+bot.onText(/\/addadmin (\d+)/, async (msg, match) => {
+
+  if (msg.chat.id !== OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner.");
+
+  const id = match[1];
+
+  await pool.query(
+    "INSERT INTO admins (id) VALUES ($1) ON CONFLICT DO NOTHING",
+    [id]
+  );
+
+  bot.sendMessage(msg.chat.id, "✅ Admin ditambahkan");
 
 });
 
-// =======================
-// WELCOME MESSAGE
-// =======================
-bot.on("message", async (msg) => {
+// ==========================
+// LIST ADMIN
+// ==========================
+bot.onText(/\/listadmin/, async msg => {
 
-  if (!msg.new_chat_members) return;
+  if (msg.chat.id !== OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner.");
+
+  const res = await pool.query("SELECT id FROM admins");
+
+  let text = "📋 Daftar Admin\n\n";
+
+  res.rows.forEach((r, i) => {
+    if (r.id == OWNER_ID)
+      text += `${i + 1}. ${r.id} (OWNER)\n`;
+    else
+      text += `${i + 1}. ${r.id}\n`;
+  });
+
+  bot.sendMessage(msg.chat.id, text);
+
+});
+
+// ==========================
+// REMOVE ADMIN
+// ==========================
+bot.onText(/\/removeadmin (\d+)/, async (msg, match) => {
+
+  if (msg.chat.id !== OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya owner.");
+
+  const id = parseInt(match[1]);
+
+  if (id === OWNER_ID)
+    return bot.sendMessage(msg.chat.id, "❌ Owner tidak bisa dihapus.");
+
+  await pool.query(
+    "DELETE FROM admins WHERE id=$1",
+    [id]
+  );
+
+  bot.sendMessage(msg.chat.id, "✅ Admin dihapus");
+
+});
+
+// ==========================
+// MY ID
+// ==========================
+bot.onText(/\/myid/, msg => {
+  bot.sendMessage(msg.chat.id, `🆔 ID kamu: ${msg.chat.id}`);
+});
+
+// ==========================
+// LIST VIDEO
+// ==========================
+bot.onText(/\/listvideo/, async msg => {
+
+  const admin = await isAdmin(msg.chat.id);
+
+  if (!admin)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya admin.");
+
+  const res = await pool.query(
+    "SELECT id, judul, kode FROM videos ORDER BY created_at DESC"
+  );
+
+  if (res.rows.length === 0)
+    return bot.sendMessage(msg.chat.id, "📭 Belum ada video.");
+
+  let text = "📋 Daftar Video\n\n";
+
+  res.rows.forEach((r, i) => {
+    text += `${i + 1}. ${r.judul} (${r.id})\n`;
+    text += `🔗 https://t.me/${botUsername}?start=${r.kode}\n\n`;
+  });
+
+  bot.sendMessage(msg.chat.id, text);
+
+});
+
+// ==========================
+// HAPUS VIDEO
+// ==========================
+bot.onText(/\/hapus_(\d+)/, async (msg, match) => {
+
+  const admin = await isAdmin(msg.chat.id);
+
+  if (!admin)
+    return bot.sendMessage(msg.chat.id, "❌ Hanya admin.");
+
+  const id = parseInt(match[1]);
+
+  const res = await pool.query(
+    "SELECT judul FROM videos WHERE id=$1",
+    [id]
+  );
+
+  if (res.rows.length === 0)
+    return bot.sendMessage(msg.chat.id, "❌ Video tidak ditemukan.");
+
+  const judul = res.rows[0].judul;
+
+  await pool.query("DELETE FROM videos WHERE id=$1", [id]);
+
+  bot.sendMessage(msg.chat.id, `✅ Video "${judul}" berhasil dihapus.`);
+
+});
+
+// ==========================
+// BATAL UPLOAD
+// ==========================
+bot.onText(/\/batal/, async msg => {
+
+  const admin = await isAdmin(msg.chat.id);
+  if (!admin) return;
+
+  if (!pendingVideos[msg.chat.id])
+    return bot.sendMessage(msg.chat.id, "⚠️ Tidak ada proses upload yang aktif.");
+
+  delete pendingVideos[msg.chat.id];
+
+  bot.sendMessage(msg.chat.id, "✅ Upload dibatalkan.");
+
+});
+
+// ==========================
+// ADMIN UPLOAD VIDEO
+// ==========================
+bot.on("message", async msg => {
+
+  if (!msg.video) return;
+
+  const admin = await isAdmin(msg.chat.id);
+  if (!admin) return;
+
+  pendingVideos[msg.chat.id] = msg.video.file_id;
+
+  bot.sendMessage(msg.chat.id,
+    "📝 Berikan judul untuk video ini:\n\n(ketik /batal untuk membatalkan)"
+  );
+
+});
+
+// ==========================
+// TERIMA JUDUL DARI ADMIN
+// ==========================
+bot.on("message", async msg => {
+
+  if (!pendingVideos[msg.chat.id]) return;
+  if (!msg.text) return;
+  if (msg.text.startsWith("/")) return;
+
+  const admin = await isAdmin(msg.chat.id);
+  if (!admin) return;
+
+  const file_id = pendingVideos[msg.chat.id];
+  const judul = msg.text.trim();
+  const kode = generateCode();
+
+  delete pendingVideos[msg.chat.id];
+
+  await pool.query(
+    "INSERT INTO videos (kode, file_id, judul) VALUES ($1, $2, $3)",
+    [kode, file_id, judul]
+  );
+
+  const link = `https://t.me/${botUsername}?start=${kode}`;
+
+  bot.sendMessage(msg.chat.id,
+`✅ Video berhasil disimpan
+
+Judul : ${judul}
+🔗 Link: \`${link}\``,
+    { parse_mode: "Markdown" }
+  );
+
+});
+
+// ==========================
+// START WITH LINK
+// ==========================
+bot.onText(/\/start (.+)/, async (msg, match) => {
 
   const chatId = msg.chat.id;
-  const groupName = escapeMarkdown(msg.chat.title);
+  const kode = match[1];
 
-  for (const member of msg.new_chat_members) {
+  const joined = await checkMembership(chatId);
 
-    const name = escapeMarkdown(member.first_name);
+  if (!joined) {
 
-    const mentionUser = member.username
-      ? `@${escapeMarkdown(member.username)}`
-      : `[${name}](tg://user?id=${member.id})`;
-
-    try {
-      if (lastWelcomeMessage[chatId]) {
-        await bot.deleteMessage(chatId, lastWelcomeMessage[chatId]);
-      }
-    } catch {}
-
-    const sent = await bot.sendMessage(
-      chatId,
-`Halo ${name} Welcome To ${groupName}
-User: ${mentionUser}
-ID: ${member.id}
-JANGAN SPAM & KIRIM LINK SEMBARANGAN`,
+    return bot.sendMessage(chatId,
+      "🚫 Kamu harus join channel & grup dulu",
       {
-        parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
             [
               {
-                text: "ASUPAN",
-                url: PROMO_CHANNEL
+                text: "Join Channel",
+                url: `https://t.me/${CHANNEL_USERNAME.replace("@", "")}`
+              }
+            ],
+            [
+              {
+                text: "Join Grup",
+                url: GROUP_INVITE_LINK
+              }
+            ],
+            [
+              {
+                text: "✅ Saya sudah join",
+                callback_data: `ck_${kode}`
               }
             ]
           ]
         }
-      }
+      });
+
+  }
+
+  const res = await pool.query(
+    "SELECT file_id FROM videos WHERE kode=$1",
+    [kode]
+  );
+
+  if (res.rows.length === 0)
+    return bot.sendMessage(chatId, "❌ Video tidak ditemukan");
+
+  bot.sendVideo(chatId, res.rows[0].file_id);
+
+});
+
+// ==========================
+// CEK ULANG JOIN
+// ==========================
+bot.on("callback_query", async query => {
+
+  const chatId = query.message.chat.id;
+  const data = query.data;
+
+  if (!data.startsWith("ck_")) return;
+
+  const kode = data.slice("ck_".length);
+
+  const joined = await checkMembership(chatId);
+
+  if (!joined) {
+
+    return bot.answerCallbackQuery(query.id, {
+      text: "❌ Kamu belum join",
+      show_alert: true
+    });
+
+  }
+
+  const res = await pool.query(
+    "SELECT file_id FROM videos WHERE kode=$1",
+    [kode]
+  );
+
+  if (res.rows.length === 0) {
+
+    return bot.answerCallbackQuery(query.id, {
+      text: "❌ Video tidak ditemukan",
+      show_alert: true
+    });
+
+  }
+
+  await bot.sendVideo(chatId, res.rows[0].file_id);
+
+  bot.answerCallbackQuery(query.id);
+
+});
+
+// ==========================
+// START BIASA
+// ==========================
+bot.onText(/\/start$/, async msg => {
+
+  const admin = await isAdmin(msg.chat.id);
+
+  if (admin)
+    bot.sendMessage(msg.chat.id,
+`📤 Panduan Admin
+
+Upload video → ketik judul → link langsung muncul
+
+📋 Command:
+/listvideo — lihat semua video
+/hapus_(id) — hapus video, contoh: /hapus_1
+/batal — batalkan upload
+/listadmin — daftar admin
+/addadmin (id) — tambah admin
+/removeadmin (id) — hapus admin
+/myid — lihat ID kamu`
     );
-
-    lastWelcomeMessage[chatId] = sent.message_id;
-  }
-});
-
-// =======================
-// MAIN MODERATION
-// =======================
-bot.on("message", async (msg) => {
-
-  if (!msg.text || msg.chat.type === "private") return;
-
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-  const now = Date.now();
-
-  try {
-
-    const member = await bot.getChatMember(chatId, userId);
-
-    if (["administrator", "creator"].includes(member.status)) return;
-
-    // ===================
-    // ANTI LINK
-    // ===================
-    if (ANTI_LINK) {
-
-      const linkRegex = /(https?:\/\/|t\.me|www\.)/i;
-
-      if (linkRegex.test(msg.text)) {
-
-        await bot.deleteMessage(chatId, msg.message_id);
-
-        await muteUser(
-          chatId,
-          userId,
-          msg,
-          "Mengirim link tidak diperbolehkan."
-        );
-
-        return;
-      }
-    }
-
-    // ===================
-    // ANTI SPAM
-    // ===================
-    if (ANTI_SPAM) {
-
-      if (!userMessages[userId]) {
-        userMessages[userId] = [];
-      }
-
-      userMessages[userId].push(now);
-
-      userMessages[userId] = userMessages[userId].filter(
-        (time) => now - time < TIME_WINDOW
-      );
-
-      if (userMessages[userId].length > SPAM_LIMIT) {
-
-        await muteUser(
-          chatId,
-          userId,
-          msg,
-          "Terlalu banyak pesan (spam)."
-        );
-      }
-    }
-
-  } catch (err) {
-
-    console.log("ERROR:", err.response?.body || err.message);
-
-  }
-
-});
-
-// =======================
-// MUTE FUNCTION
-// =======================
-async function muteUser(chatId, userId, msg, reason, customDuration) {
-
-  const duration = customDuration || DEFAULT_MUTE_DURATION;
-  const until = Math.floor(Date.now() / 1000) + duration;
-
-  await bot.restrictChatMember(chatId, userId, {
-    permissions: {
-      can_send_messages: false,
-      can_send_audios: false,
-      can_send_documents: false,
-      can_send_photos: false,
-      can_send_videos: false,
-      can_send_video_notes: false,
-      can_send_voice_notes: false,
-      can_send_polls: false,
-      can_send_other_messages: false,
-      can_add_web_page_previews: false,
-    },
-    until_date: until
-  });
-
-  const name = escapeMarkdown(msg.from.first_name);
-  const untilFormatted = formatDateTime(until * 1000);
-
-  await bot.sendMessage(
-    chatId,
-`🚫 *PERINGATAN MODERASI*
-\`\`\`
-User  : ${name}
-Muted : ${duration} detik
-Sampai: ${untilFormatted}
-Alasan: ${reason}
-\`\`\``,
-    { parse_mode: "Markdown" }
-  );
-
-}
-
-// =======================
-// COMMAND .setmute
-// =======================
-bot.onText(/^\.setmute (\d+)$/, async (msg, match) => {
-
-  const chatId = msg.chat.id;
-  const callerId = msg.from.id;
-
-  const callerMember = await bot.getChatMember(chatId, callerId);
-
-  if (!["administrator", "creator"].includes(callerMember.status)) {
-    return bot.sendMessage(chatId, "❌ Hanya admin.");
-  }
-
-  let duration = parseInt(match[1]);
-
-  if (duration < MIN_MUTE_DURATION) {
-    return bot.sendMessage(chatId, `❌ Durasi minimum ${MIN_MUTE_DURATION} detik.`);
-  }
-
-  DEFAULT_MUTE_DURATION = duration;
-
-  bot.sendMessage(chatId, `✅ Durasi mute default diubah menjadi *${DEFAULT_MUTE_DURATION} detik*`, {
-    parse_mode: "Markdown"
-  });
-
-});
-
-// =======================
-// COMMAND .mute
-// =======================
-bot.onText(/^\.mute (\d+)$/, async (msg, match) => {
-
-  const chatId = msg.chat.id;
-  const callerId = msg.from.id;
-
-  const callerMember = await bot.getChatMember(chatId, callerId);
-  const callerStatus = callerMember.status;
-
-  if (!["administrator", "creator"].includes(callerStatus)) {
-    return bot.sendMessage(chatId, "❌ Hanya admin.");
-  }
-
-  if (!msg.reply_to_message) {
-    return bot.sendMessage(chatId, "⚠️ Reply pesan user yang ingin dimute.");
-  }
-
-  const targetId = msg.reply_to_message.from.id;
-  const targetMember = await bot.getChatMember(chatId, targetId);
-  const targetStatus = targetMember.status;
-
-  // Admin coba mute owner
-  if (targetStatus === "creator") {
-    return bot.sendMessage(chatId, "❌ Tidak bisa mute owner.");
-  }
-
-  // Owner coba mute admin
-  if (targetStatus === "administrator" && callerStatus === "creator") {
-    return bot.sendMessage(chatId, "Jangan jahat bang 😭🙏");
-  }
-
-  // Admin coba mute sesama admin
-  if (targetStatus === "administrator" && callerStatus === "administrator") {
-    return bot.sendMessage(chatId, "❌ Tidak bisa mute sesama admin.");
-  }
-
-  let duration = parseInt(match[1]);
-
-  if (duration < MIN_MUTE_DURATION) {
-    await bot.sendMessage(chatId, `⚠️ Durasi minimum ${MIN_MUTE_DURATION} detik, otomatis diset ${MIN_MUTE_DURATION} detik.`);
-    duration = MIN_MUTE_DURATION;
-  }
-
-  await muteUser(
-    chatId,
-    targetId,
-    msg.reply_to_message,
-    "Mute manual oleh admin.",
-    duration
-  );
-
-});
-
-// =======================
-// COMMAND .kick
-// =======================
-bot.onText(/^\.kick$/, async (msg) => {
-
-  const chatId = msg.chat.id;
-  const callerId = msg.from.id;
-
-  const callerMember = await bot.getChatMember(chatId, callerId);
-  const callerStatus = callerMember.status;
-
-  if (!["administrator", "creator"].includes(callerStatus)) {
-    return bot.sendMessage(chatId, "❌ Hanya admin.");
-  }
-
-  if (!msg.reply_to_message) {
-    return bot.sendMessage(chatId, "⚠️ Reply pesan user yang ingin di-kick.");
-  }
-
-  const targetId = msg.reply_to_message.from.id;
-  const targetMember = await bot.getChatMember(chatId, targetId);
-  const targetStatus = targetMember.status;
-
-  // Admin coba kick owner
-  if (targetStatus === "creator") {
-    return bot.sendMessage(chatId, "❌ Tidak bisa kick owner.");
-  }
-
-  // Owner coba kick admin
-  if (targetStatus === "administrator" && callerStatus === "creator") {
-    return bot.sendMessage(chatId, "Jangan jahat bang 😭🙏");
-  }
-
-  // Admin coba kick sesama admin
-  if (targetStatus === "administrator" && callerStatus === "administrator") {
-    return bot.sendMessage(chatId, "❌ Tidak bisa kick sesama admin.");
-  }
-
-  const name = escapeMarkdown(msg.reply_to_message.from.first_name);
-
-  await bot.banChatMember(chatId, targetId);
-  await bot.unbanChatMember(chatId, targetId);
-
-  bot.sendMessage(
-    chatId,
-`✅ *KICK BERHASIL*
-\`\`\`
-User  : ${name}
-Status: Telah dikeluarkan dari grup
-\`\`\``,
-    { parse_mode: "Markdown" }
-  );
+  else
+    bot.sendMessage(msg.chat.id, "👋 Klik link video untuk melihat konten");
 
 });
