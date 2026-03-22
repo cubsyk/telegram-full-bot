@@ -23,7 +23,7 @@ const CHANNEL_USERNAME = "@seducteasech";
 const GROUP_ID = -1003564618360;
 
 // LINK INVITE GRUP
-const GROUP_INVITE_LINK = "https://t.me/+YsRyXijYl0Y1NGFl";
+const GROUP_INVITE_LINK = "https://t.me/+WFBU_2WGIURmY2Nl";
 
 // ==========================
 // STATE — menyimpan video sementara
