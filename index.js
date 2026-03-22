@@ -20,7 +20,7 @@ const OWNER_ID = 1388479642;
 const CHANNEL_USERNAME = "@seducteasech";
 
 // GROUP WAJIB JOIN (grup privat pakai Chat ID)
-const GROUP_ID = -1003564618360;
+const GROUP_ID = -1003521400775;
 
 // LINK INVITE GRUP
 const GROUP_INVITE_LINK = "https://t.me/+WFBU_2WGIURmY2Nl";
